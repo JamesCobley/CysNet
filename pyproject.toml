@@ -21,6 +21,9 @@ dependencies = [
 dev = [
     "pytest>=7.0,<9.0"
 ]
+widget = [
+    "ipywidgets>=8.0"
+]
 app = [
     "streamlit>=1.30"
 ]
