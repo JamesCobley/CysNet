@@ -6,6 +6,31 @@ CysNet treats site-level cysteine oxidation values as marginals over an unobserv
 
 CysNet does not over-resolve incomplete bottom-up data. It only returns what the mathematics supports. Complete-coverage proteins may collapse to exact oxiform ensemble distributions; incomplete proteins return the exact constraint class supported by the measured cysteine coordinates.
 
+## What CysNet does
+
+CysNet converts bottom-up cysteine redox proteomics into a protein-level constraint report.
+
+The core workflow is:
+
+```text
+L / UniMod_108 reduced site matrix
+H / UniMod_776 oxidised site matrix
+FASTA used for the DIA-NN search
+optional protein-group LFQ / PG matrix
+        ↓
+site-level redox marginals
+        ↓
+FASTA-derived cysteine topology
+        ↓
+complete / incomplete coverage classes
+        ↓
+theorem-constrained proteoform and oxiform summaries
+        ↓
+optional copy-number-scaled oxiform bounds
+        ↓
+downloadable CysNet output bundle
+```
+
 ## Current status
 
 CysNet currently implements:
@@ -15,8 +40,14 @@ CysNet currently implements:
 * redox marginal calculation from reduced and oxidised cysteine channels;
 * FASTA-derived cysteine topology bookkeeping;
 * complete versus incomplete coverage classification;
-* command-line workflows;
-* a simple Jupyter/Colab upload widget;
+* sample-level proteoform and oxiform summaries;
+* cohort-level resolved and constrained proteoform totals;
+* optional protein copy-number scaling from protein-group intensities;
+* optional copy-number-scaled oxiform and fully reduced bounds;
+* exact substate copy numbers for exact observed-coordinate solutions;
+* command-line workflows for theorem testing, Oxi-DIA import and topology;
+* a Colab-native upload helper for non-command-line use;
+* optional experimental widget and Streamlit routes;
 * unit tests for the core theorem.
 
 ## Redox logic
@@ -44,7 +75,7 @@ L + H       -> H / (H + L)
 neither L/H -> missing
 ```
 
-The protein LFQ matrix is not used to calculate redox marginals. Protein abundance or copy-number information is used later for abundance-scaled or copy-number-scaled oxiform constraints.
+The protein LFQ / PG matrix is not used to calculate redox marginals. Protein abundance or copy-number information is used only after redox calculation for copy-number-scaled oxiform constraints.
 
 ## Installation
 
@@ -65,13 +96,15 @@ python -m pip install -e ".[dev]" --upgrade --upgrade-strategy only-if-needed
 
 This installs CysNet together with the dependencies required to run the tests.
 
-### Install CysNet with notebook widget support
+### Optional extras
+
+For the experimental notebook widget:
 
 ```bash
 python -m pip install -e ".[dev,widget]" --upgrade --upgrade-strategy only-if-needed
 ```
 
-### Install CysNet with Streamlit app support
+For the optional Streamlit app:
 
 ```bash
 python -m pip install -e ".[dev,app]" --upgrade --upgrade-strategy only-if-needed
@@ -91,15 +124,112 @@ Expected output:
 
 These tests check the core theorem behaviour, including boundary exclusion, exact oxiform resolution, bounded feasible ensembles, oxiform union bounds, fully reduced bounds and invalid input handling.
 
+## Recommended Colab workflow
+
+The recommended non-command-line route is the Colab-native upload helper.
+
+This avoids third-party widget issues and uses Colab's built-in file upload/download system.
+
+In a fresh Colab notebook:
+
+```python
+%cd /content
+!rm -rf CysNet
+!git clone https://github.com/JamesCobley/CysNet.git
+%cd /content/CysNet
+
+!python -m pip install -e ".[dev]" --upgrade --upgrade-strategy only-if-needed
+!pytest -q
+```
+
+Then run:
+
+```python
+import sys
+sys.path.insert(0, "/content/CysNet/src")
+
+from cysnet.colab import run_colab_upload
+
+run_colab_upload()
+```
+
+The Colab helper asks for:
+
+```text
+study name
+L/H delimiter
+PG delimiter
+injected protein mass in ng
+L / Light / UniMod_108 site matrix
+H / Heavy / UniMod_776 site matrix
+FASTA file used for the DIA-NN search
+optional PG / protein LFQ matrix
+```
+
+If no PG matrix is provided, CysNet runs the fraction-scale workflow:
+
+```text
+Oxi-DIA redox import
+FASTA topology
+constraint classification
+sample-level proteoform summary
+cohort proteoform totals
+resolved exact distributions
+ZIP download
+```
+
+If a PG matrix is provided, CysNet additionally runs:
+
+```text
+protein copy-number scaling
+copy-constrained observed-coordinate substate capacity
+copy-number-scaled oxiform bounds
+copy-number-scaled fully reduced bounds
+exact substate copy numbers where the solution is exact
+copy-aware summary tables
+```
+
+## Main outputs
+
+A typical CysNet run writes:
+
+```text
+<study>_site_percent_oxidised.tsv
+<study>_site_coverage_nfiles.tsv
+<study>_sample_summary.tsv
+<study>_redox_marginals.tsv
+<study>_protein_topology.tsv
+<study>_topology_summary.tsv
+<study>_per_protein_constraints.tsv
+<study>_coverage_classes.tsv
+<study>_constraint_summary.tsv
+<study>_sample_proteoform_summary.tsv
+<study>_cohort_proteoform_totals.tsv
+<study>_resolved_distributions.tsv
+```
+
+If a PG / protein LFQ matrix is supplied, CysNet also writes:
+
+```text
+<study>_protein_copy_number.tsv
+<study>_copy_substate_summary.tsv
+<study>_copy_constraints.tsv
+<study>_exact_substate_copies.tsv
+<study>_copy_constraint_summary.tsv
+<study>_copy_constraint_cohort_summary.tsv
+```
+
 ## Command-line usage
 
-CysNet currently exposes three command-line workflows:
+CysNet currently exposes command-line workflows for theorem checks, Oxi-DIA import and FASTA topology.
 
 ```text
 cysnet theorem
 cysnet oxidia-sites
 cysnet topology
 ```
+
+The constraint and copy-constraint modules can currently be run through the Python API or through the Colab helper.
 
 ## 1. Theorem examples
 
@@ -234,121 +364,275 @@ complete = True  -> detected cysteines equal FASTA cysteine count
 complete = False -> observed-coordinate constraint only
 ```
 
-The topology summary reports sample-level coverage and state-space bookkeeping, including:
+## 4. Constraint classification through Python
 
-```text
-number of detected protein groups
-number of complete protein groups
-number of incomplete protein groups
-number of FASTA cysteines
-number of detected cysteines
-cysteine coverage percentage
-log10 summed full state space
-log10 summed observed-coordinate state space
-```
-
-## Full command-line workflow
-
-A typical CysNet v1 workflow is:
-
-```bash
-git clone https://github.com/JamesCobley/CysNet.git
-cd CysNet
-
-python -m pip install -e ".[dev]" --upgrade --upgrade-strategy only-if-needed
-
-cysnet oxidia-sites \
-  --light UniMod_108_sites.tsv \
-  --heavy UniMod_776_sites.tsv \
-  --study MY_STUDY \
-  --out results
-
-cysnet topology \
-  --redox-marginals results/MY_STUDY_redox_marginals.tsv \
-  --fasta search_database.fasta \
-  --study MY_STUDY \
-  --out results
-```
-
-## Notebook upload widget
-
-CysNet includes a simple Jupyter/Colab upload widget for users who do not want to use command-line file paths.
-
-Install with widget support:
-
-```bash
-python -m pip install -e ".[dev,widget]" --upgrade --upgrade-strategy only-if-needed
-```
-
-Launch in a notebook:
+After generating redox marginals and topology outputs, run:
 
 ```python
-from cysnet.widget import launch_oxidia_widget
+from cysnet.constraints import write_constraint_outputs
 
-launch_oxidia_widget()
+constraint_paths = write_constraint_outputs(
+    redox_marginals_path="results/MY_STUDY_redox_marginals.tsv",
+    protein_topology_path="results/MY_STUDY_protein_topology.tsv",
+    outdir="results",
+    study_name="MY_STUDY",
+)
 ```
 
-The widget asks for:
+This writes:
 
 ```text
-study name
-L / Light / UniMod_108 site matrix
-H / Heavy / UniMod_776 site matrix
-FASTA file used for the DIA-NN search
+results/MY_STUDY_per_protein_constraints.tsv
+results/MY_STUDY_coverage_classes.tsv
+results/MY_STUDY_constraint_summary.tsv
+results/MY_STUDY_sample_proteoform_summary.tsv
+results/MY_STUDY_cohort_proteoform_totals.tsv
+results/MY_STUDY_resolved_distributions.tsv
 ```
 
-The widget then computes:
+### Per-protein constraints
+
+`per_protein_constraints.tsv` reports, for each protein/sample:
 
 ```text
-site-level percent oxidised
-detected-site coverage
-sample-level redox summary
-CysNet-ready redox marginals
-FASTA-derived cysteine topology
-complete/incomplete protein coverage
-topology summary
+sample_id
+protein_id
+R_total
+R_detected
+coverage
+n_degenerate
+n_fixed_reduced
+n_fixed_oxidised
+n_intermediate
+observed_state_space_log2
+full_state_space_log2
+collapsed_space_log2
+collapse_extent_log2
+at_least_one_oxiform
+multi_intermediate
+polytope_dim
+solution_type
 ```
 
-It also creates a ZIP archive containing all generated outputs.
+The `solution_type` column can be:
 
-### Colab note
+```text
+exact_singleton
+exact_two_state
+inexact_bounded
+incomplete_observed_coordinate_constraints
+```
 
-If Colab cannot find the package after cloning, add the source path manually:
+### Coverage classes
+
+`coverage_classes.tsv` summarises cysteine redox classes within complete and incomplete proteins:
+
+```text
+complete_reduced_0
+complete_partial
+complete_oxidised_1
+incomplete_reduced_0
+incomplete_partial
+incomplete_oxidised_1
+complete_polytope_ge2partial
+```
+
+### Proteoform and oxiform summaries
+
+`sample_proteoform_summary.tsv` reports:
+
+```text
+resolved_proteoforms
+resolved_oxiform_containing
+constrained_proteoforms
+constrained_with_oxiform
+```
+
+`cohort_proteoform_totals.tsv` reports resolved and constrained totals, including:
+
+```text
+resolved_proteoforms_incl_multiples
+resolved_proteoforms_unique_by_distribution
+resolved_proteoforms_unique_by_structure
+resolved_oxiform_incl_multiples
+resolved_oxiform_unique_by_distribution
+resolved_oxiform_unique_by_structure
+constrained_incl_multiples
+constrained_with_oxiform_incl_multiples
+```
+
+`resolved_distributions.tsv` records exact observed-coordinate distributions for exact complete-coverage solutions.
+
+## 5. Protein copy-number scaling through Python
+
+If a PG / protein LFQ matrix is available, CysNet can scale protein-group intensities to molecular copy number.
+
+Run:
 
 ```python
-import sys
-sys.path.insert(0, "/content/CysNet/src")
+from cysnet.copynumber import write_copy_number_outputs
 
-from cysnet.widget import launch_oxidia_widget
-launch_oxidia_widget()
+copy_paths = write_copy_number_outputs(
+    redox_marginals_path="results/MY_STUDY_redox_marginals.tsv",
+    protein_matrix_path="pg_matrix.tsv",
+    fasta_path="search_database.fasta",
+    outdir="results",
+    study_name="MY_STUDY",
+    injected_mass_g=500e-9,
+)
 ```
 
-## Streamlit app
-
-CysNet also includes an optional Streamlit upload app.
-
-Install with app support:
-
-```bash
-python -m pip install -e ".[dev,app]" --upgrade --upgrade-strategy only-if-needed
-```
-
-Run locally:
-
-```bash
-streamlit run src/cysnet/app.py
-```
-
-The Streamlit app provides the same basic upload workflow:
+This writes:
 
 ```text
-upload L
-upload H
-upload FASTA
-enter study name
-run CysNet
-download outputs
+results/MY_STUDY_protein_copy_number.tsv
+results/MY_STUDY_copy_substate_summary.tsv
 ```
+
+The copy-number table reports, for each protein/sample:
+
+```text
+raw_intensity
+scaled_mass_g
+molecular_weight_da
+protein_copies
+fasta_cysteines
+detected_cysteines
+realised_substates
+copy_limited
+```
+
+The copy-substate summary reports sample-level copy-number and state-space capacity summaries.
+
+## 6. Copy-number-scaled constraints through Python
+
+After running `constraints` and `copynumber`, run:
+
+```python
+from cysnet.copyconstraints import write_copy_constraint_outputs
+
+copy_constraint_paths = write_copy_constraint_outputs(
+    redox_marginals_path="results/MY_STUDY_redox_marginals.tsv",
+    per_protein_constraints_path="results/MY_STUDY_per_protein_constraints.tsv",
+    protein_copy_number_path="results/MY_STUDY_protein_copy_number.tsv",
+    outdir="results",
+    study_name="MY_STUDY",
+)
+```
+
+This writes:
+
+```text
+results/MY_STUDY_copy_constraints.tsv
+results/MY_STUDY_exact_substate_copies.tsv
+results/MY_STUDY_copy_constraint_summary.tsv
+results/MY_STUDY_copy_constraint_cohort_summary.tsv
+```
+
+The copy-constraint table reports:
+
+```text
+protein_copy_number
+observed_coordinate
+observed_space_log2
+pruned_space_log2
+collapse_extent_log2
+excluded_fraction_by_boundary_priors
+copy_limited_realised_observed_substates
+min_required_observed_substates
+oxiform_min_fraction
+oxiform_max_fraction
+oxiform_min_copies
+oxiform_max_copies
+fully_reduced_min_fraction
+fully_reduced_max_fraction
+fully_reduced_min_copies
+fully_reduced_max_copies
+compatible_fibre_copies
+```
+
+The oxiform copy bounds are sharp Fréchet union bounds over the observed cysteine coordinates:
+
+```text
+oxiform_min_fraction = max(p_i)
+oxiform_max_fraction = min(1, sum(p_i))
+```
+
+where `p_i` are the observed cysteine oxidation marginals.
+
+The fully reduced bounds are the complement:
+
+```text
+fully_reduced_min_fraction = max(0, 1 - sum(p_i))
+fully_reduced_max_fraction = 1 - max(p_i)
+```
+
+When a complete-coverage protein has an exact observed-coordinate solution, `exact_substate_copies.tsv` reports the exact substate probability and copy number.
+
+## Full Python workflow
+
+A complete scripted workflow is:
+
+```python
+from cysnet.oxidia import write_oxidia_outputs
+from cysnet.topology import write_topology_outputs
+from cysnet.constraints import write_constraint_outputs
+from cysnet.copynumber import write_copy_number_outputs
+from cysnet.copyconstraints import write_copy_constraint_outputs
+
+study = "MY_STUDY"
+outdir = "results"
+
+oxidia_paths = write_oxidia_outputs(
+    light_path="UniMod_108_sites.tsv",
+    heavy_path="UniMod_776_sites.tsv",
+    outdir=outdir,
+    study_name=study,
+    sep="\t",
+)
+
+topology_paths = write_topology_outputs(
+    redox_marginals_path=oxidia_paths["redox_marginals"],
+    fasta_path="search_database.fasta",
+    outdir=outdir,
+    study_name=study,
+    sep="\t",
+)
+
+constraint_paths = write_constraint_outputs(
+    redox_marginals_path=oxidia_paths["redox_marginals"],
+    protein_topology_path=topology_paths["protein_topology"],
+    outdir=outdir,
+    study_name=study,
+    sep="\t",
+)
+
+copy_paths = write_copy_number_outputs(
+    redox_marginals_path=oxidia_paths["redox_marginals"],
+    protein_matrix_path="pg_matrix.tsv",
+    fasta_path="search_database.fasta",
+    outdir=outdir,
+    study_name=study,
+    injected_mass_g=500e-9,
+)
+
+copy_constraint_paths = write_copy_constraint_outputs(
+    redox_marginals_path=oxidia_paths["redox_marginals"],
+    per_protein_constraints_path=constraint_paths["per_protein_constraints"],
+    protein_copy_number_path=copy_paths["protein_copy_number"],
+    outdir=outdir,
+    study_name=study,
+)
+```
+
+Without a PG matrix, omit the final two blocks:
+
+```text
+write_copy_number_outputs
+write_copy_constraint_outputs
+```
+
+CysNet will still produce valid redox, topology, constraint, sample-summary and cohort-summary outputs.
 
 ## Required Oxi-DIA site matrix structure
 
@@ -386,6 +670,32 @@ Residue
 Site
 Sequence
 ```
+
+## Required protein matrix structure
+
+The optional PG / protein LFQ matrix should contain one protein-group identifier column and one or more sample intensity columns.
+
+CysNet attempts to infer the protein-group identifier column from common names:
+
+```text
+Protein.Group
+Protein.Ids
+Protein.Group.Ids
+Protein
+protein_id
+```
+
+Sample columns should match the `sample_id` values in the CysNet redox marginal table.
+
+Example:
+
+```csv
+Protein.Group,S1,S2
+P12345,1000000,1200000
+Q99999,500000,750000
+```
+
+The protein matrix is used only for copy-number scaling. It is not used to calculate cysteine oxidation.
 
 ## FASTA requirements
 
@@ -442,7 +752,34 @@ fixed-positive
 
 If every state has identical lower and upper bounds, the observed-coordinate ensemble is exact. Otherwise, the feasible set is bounded.
 
+For complete-coverage proteins, exact solutions can be reported as resolved observed-coordinate oxiform distributions.
+
 For incomplete proteins, CysNet reports constraints over the measured cysteine-coordinate projection. It does not infer unmeasured cysteine states.
+
+## Copy-number mathematical scope
+
+For observed cysteine oxidation marginals `p_i`, CysNet bounds the fraction of molecules carrying at least one oxidised observed cysteine using sharp union bounds:
+
+```text
+lower oxiform fraction = max(p_i)
+upper oxiform fraction = min(1, sum(p_i))
+```
+
+It bounds the fully reduced observed-coordinate fraction as:
+
+```text
+lower fully reduced fraction = max(0, 1 - sum(p_i))
+upper fully reduced fraction = 1 - max(p_i)
+```
+
+When protein copy number is available, these fractions are multiplied by the estimated protein copy number:
+
+```text
+oxiform_min_copies = protein_copies * max(p_i)
+oxiform_max_copies = protein_copies * min(1, sum(p_i))
+```
+
+These are bounds over the observed cysteine-coordinate projection. For incomplete proteins, they are not claims about unmeasured cysteine coordinates.
 
 ## Current milestone
 
@@ -459,11 +796,17 @@ The current repository implements the first tested CysNet v1 skeleton:
 * redox marginal calculation;
 * FASTA-derived cysteine topology;
 * complete versus incomplete protein coverage;
+* coverage-class and constraint summaries;
+* sample-level resolved/constrained proteoform summaries;
+* cohort-level unique resolved proteoform totals;
+* resolved exact distributions;
+* optional protein copy-number scaling;
+* optional copy-number-scaled oxiform and fully reduced bounds;
+* optional exact substate copy-number outputs;
 * command-line workflows;
-* notebook upload widget;
+* Colab-native upload workflow;
+* optional experimental widget;
 * optional Streamlit app;
 * unit tests for the core theorem cases.
 
-This establishes the software foundation for extending CysNet from direct marginal inputs to full protein-level redox tables, FASTA-derived cysteine topology and copy-number-scaled oxiform constraints.
-
-
+This establishes the software foundation for extending CysNet from direct marginal inputs to full protein-level redox tables, FASTA-derived cysteine topology, copy-number-scaled oxiform constraints and later full oxiform identity/weight interpretation.
