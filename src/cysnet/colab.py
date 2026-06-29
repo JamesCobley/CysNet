@@ -5,9 +5,11 @@ import zipfile
 from pathlib import Path
 
 import pandas as pd
+from IPython.display import display
 
 from cysnet.oxidia import write_oxidia_outputs
 from cysnet.topology import write_topology_outputs
+from cysnet.constraints import write_constraint_outputs
 
 
 def _upload_one(prompt: str) -> Path:
@@ -40,6 +42,7 @@ def _zip_folder(folder: Path, zip_path: Path) -> Path:
         for path in folder.glob("*"):
             if path.is_file():
                 zf.write(path, arcname=path.name)
+
     return zip_path
 
 
@@ -54,6 +57,20 @@ def run_colab_upload() -> None:
 
     Optional:
       - PG / protein LFQ matrix for copy-number scaling
+
+    Outputs:
+      - site-level percent oxidised
+      - site coverage
+      - sample summary
+      - redox marginals
+      - protein topology
+      - topology summary
+      - per-protein constraint classes
+      - coverage classes
+      - constraint summary
+      - optional protein copy-number table
+      - optional copy-substate summary
+      - zipped output bundle
     """
     try:
         from google.colab import files
@@ -97,8 +114,10 @@ def run_colab_upload() -> None:
         protein_path = _upload_one("Choose the PG file now.")
 
     outdir = Path(f"{study_name}_cysnet_outputs")
+
     if outdir.exists():
         shutil.rmtree(outdir)
+
     outdir.mkdir(parents=True, exist_ok=True)
 
     print("\nRunning CysNet Oxi-DIA site import...")
@@ -121,7 +140,21 @@ def run_colab_upload() -> None:
         sep="\t",
     )
 
-    all_paths = {**oxidia_paths, **topology_paths}
+    print("Running CysNet coverage and constraint classification...")
+
+    constraint_paths = write_constraint_outputs(
+        redox_marginals_path=oxidia_paths["redox_marginals"],
+        protein_topology_path=topology_paths["protein_topology"],
+        outdir=outdir,
+        study_name=study_name,
+        sep="\t",
+    )
+
+    all_paths = {
+        **oxidia_paths,
+        **topology_paths,
+        **constraint_paths,
+    }
 
     if protein_path is not None:
         print("Running CysNet copy-number scaling...")
@@ -152,6 +185,12 @@ def run_colab_upload() -> None:
 
     print("\n=== FASTA topology summary ===")
     display(pd.read_csv(topology_paths["topology_summary"], sep="\t"))
+
+    print("\n=== Constraint summary ===")
+    display(pd.read_csv(constraint_paths["constraint_summary"], sep="\t"))
+
+    print("\n=== Coverage classes ===")
+    display(pd.read_csv(constraint_paths["coverage_classes"], sep="\t"))
 
     if "copy_substate_summary" in all_paths:
         print("\n=== Copy-number / substate capacity summary ===")
