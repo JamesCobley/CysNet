@@ -4,6 +4,7 @@ import argparse
 
 from cysnet.oxidia import write_oxidia_outputs
 from cysnet.theorem import classify_solution, enumerate_state_bounds
+from cysnet.topology import write_topology_outputs
 
 
 def run_theorem(args: argparse.Namespace) -> None:
@@ -28,6 +29,20 @@ def run_oxidia_sites(args: argparse.Namespace) -> None:
     print(f"site_coverage\t{paths['site_coverage']}")
     print(f"summary\t{paths['summary']}")
     print(f"redox_marginals\t{paths['redox_marginals']}")
+
+
+def run_topology(args: argparse.Namespace) -> None:
+    paths = write_topology_outputs(
+        redox_marginals_path=args.redox_marginals,
+        fasta_path=args.fasta,
+        outdir=args.out,
+        study_name=args.study,
+        sep=args.sep,
+    )
+
+    print("CysNet FASTA topology bookkeeping complete.")
+    print(f"protein_topology\t{paths['protein_topology']}")
+    print(f"topology_summary\t{paths['topology_summary']}")
 
 
 def main() -> None:
@@ -88,6 +103,43 @@ def main() -> None:
     )
 
     oxidia_parser.set_defaults(func=run_oxidia_sites)
+
+    topology_parser = subparsers.add_parser(
+        "topology",
+        help="Map detected cysteine sites onto FASTA cysteine topology.",
+    )
+
+    topology_parser.add_argument(
+        "--redox-marginals",
+        required=True,
+        help="CysNet redox marginals table produced by oxidia-sites.",
+    )
+
+    topology_parser.add_argument(
+        "--fasta",
+        required=True,
+        help="FASTA file used for the DIA-NN search.",
+    )
+
+    topology_parser.add_argument(
+        "--study",
+        required=True,
+        help="Study name used as the output file prefix.",
+    )
+
+    topology_parser.add_argument(
+        "--out",
+        required=True,
+        help="Output directory.",
+    )
+
+    topology_parser.add_argument(
+        "--sep",
+        default="\t",
+        help="Input delimiter for redox marginals. Default: tab.",
+    )
+
+    topology_parser.set_defaults(func=run_topology)
 
     args = parser.parse_args()
 
