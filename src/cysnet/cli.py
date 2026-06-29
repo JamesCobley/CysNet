@@ -6,7 +6,7 @@ from cysnet.oxidia import write_oxidia_outputs
 from cysnet.theorem import classify_solution, enumerate_state_bounds
 
 
-def run_marginals(args: argparse.Namespace) -> None:
+def run_theorem(args: argparse.Namespace) -> None:
     bounds = enumerate_state_bounds(args.marginals)
     status = classify_solution(bounds)
 
@@ -37,6 +37,20 @@ def main() -> None:
     )
 
     subparsers = parser.add_subparsers(dest="command")
+
+    theorem_parser = subparsers.add_parser(
+        "theorem",
+        help="Run theorem-constrained state bounds from cysteine redox marginals.",
+    )
+
+    theorem_parser.add_argument(
+        "marginals",
+        nargs="+",
+        type=float,
+        help="Cysteine oxidation marginals as fractions, e.g. 0 0 0.25",
+    )
+
+    theorem_parser.set_defaults(func=run_theorem)
 
     oxidia_parser = subparsers.add_parser(
         "oxidia-sites",
@@ -75,21 +89,10 @@ def main() -> None:
 
     oxidia_parser.set_defaults(func=run_oxidia_sites)
 
-    parser.add_argument(
-        "marginals",
-        nargs="*",
-        type=float,
-        help="Cysteine oxidation marginals as fractions, e.g. 0 0 0.25",
-    )
-
     args = parser.parse_args()
 
     if hasattr(args, "func"):
         args.func(args)
-        return
-
-    if args.marginals:
-        run_marginals(args)
         return
 
     parser.print_help()
