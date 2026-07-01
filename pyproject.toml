@@ -31,5 +31,9 @@ app = [
 [project.scripts]
 cysnet = "cysnet.cli:main"
 
+[tool.setuptools]
+package-dir = {"" = "src"}
+
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["cysnet*"]
