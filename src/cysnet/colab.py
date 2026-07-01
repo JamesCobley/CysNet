@@ -1,4 +1,4 @@
-from **future** import annotations
+from __future__ import annotations
 
 import shutil
 import zipfile
@@ -12,245 +12,216 @@ from cysnet.topology import write_topology_outputs
 from cysnet.constraints import write_constraint_outputs
 from cysnet.meaning import write_meaning_report
 
+
 def _upload_one(prompt: str) -> Path:
-"""
-Upload a single file using Google Colab's native files.upload().
-"""
-try:
-from google.colab import files
-except ImportError as exc:
-raise RuntimeError(
-"This helper is designed for Google Colab. "
-"Use the CLI outside Colab."
-) from exc
+    """
+    Upload a single file using Google Colab's native files.upload().
+    """
+    try:
+        from google.colab import files
+    except ImportError as exc:
+        raise RuntimeError(
+            "This helper is designed for Google Colab. "
+            "Use the CLI outside Colab."
+        ) from exc
 
-```
-print(prompt)
-uploaded = files.upload()
+    print(prompt)
+    uploaded = files.upload()
 
-if not uploaded:
-    raise ValueError("No file uploaded.")
+    if not uploaded:
+        raise ValueError("No file uploaded.")
 
-if len(uploaded) > 1:
-    raise ValueError("Please upload only one file for this step.")
+    if len(uploaded) > 1:
+        raise ValueError("Please upload only one file for this step.")
 
-filename = next(iter(uploaded.keys()))
-return Path(filename)
-```
+    filename = next(iter(uploaded.keys()))
+    return Path(filename)
+
 
 def _zip_folder(folder: Path, zip_path: Path) -> Path:
-with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-for path in folder.glob("*"):
-if path.is_file():
-zf.write(path, arcname=path.name)
+    """
+    Zip all files in a folder.
+    """
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for path in folder.glob("*"):
+            if path.is_file():
+                zf.write(path, arcname=path.name)
 
-```
-return zip_path
-```
+    return zip_path
+
 
 def run_colab_upload() -> None:
-"""
-Run CysNet in Google Colab using native file upload prompts.
+    """
+    Run CysNet in Google Colab using native file upload prompts.
+    """
+    try:
+        from google.colab import files
+    except ImportError as exc:
+        raise RuntimeError(
+            "run_colab_upload() is intended for Google Colab. "
+            "Use the command-line interface outside Colab."
+        ) from exc
 
-```
-Required:
-  - L / UniMod_108 reduced site matrix
-  - H / UniMod_776 oxidised site matrix
-  - FASTA used for DIA-NN
+    study_name = input("Study name: ").strip().replace(" ", "_")
 
-Optional:
-  - PG / protein LFQ matrix for copy-number scaling
+    if not study_name:
+        raise ValueError("Study name cannot be empty.")
 
-Outputs:
-  - site-level percent oxidised
-  - site coverage
-  - sample summary
-  - redox marginals
-  - protein topology
-  - topology summary
-  - per-protein constraint classes
-  - coverage classes
-  - constraint summary
-  - sample-level proteoform / oxiform summary
-  - cohort proteoform totals
-  - resolved exact distributions
-  - optional protein copy-number table
-  - optional copy-substate summary
-  - optional copy-number-scaled constraints
-  - optional exact substate copy numbers
-  - human-readable CysNet meaning report
-  - zipped output bundle
-"""
-try:
-    from google.colab import files
-except ImportError as exc:
-    raise RuntimeError(
-        "run_colab_upload() is intended for Google Colab. "
-        "Use the command-line interface outside Colab."
-    ) from exc
+    delimiter_choice = input("L/H delimiter: type 'tab' or 'csv' [tab]: ").strip().lower()
+    sep = "," if delimiter_choice == "csv" else "\t"
 
-study_name = input("Study name: ").strip().replace(" ", "_")
+    pg_delimiter_choice = input("PG delimiter: type 'tab' or 'csv' [tab]: ").strip().lower()
+    pg_sep = "," if pg_delimiter_choice == "csv" else "\t"
 
-if not study_name:
-    raise ValueError("Study name cannot be empty.")
+    injected_ng_text = input("Injected protein mass in ng [500]: ").strip()
+    injected_ng = float(injected_ng_text) if injected_ng_text else 500.0
 
-delimiter_choice = input("L/H delimiter: type 'tab' or 'csv' [tab]: ").strip().lower()
-sep = "," if delimiter_choice == "csv" else "\t"
+    if injected_ng <= 0:
+        raise ValueError("Injected protein mass must be positive.")
 
-pg_delimiter_choice = input("PG delimiter: type 'tab' or 'csv' [tab]: ").strip().lower()
-pg_sep = "," if pg_delimiter_choice == "csv" else "\t"
+    print("\nUpload L / reduced / UniMod_108 site matrix.")
+    light_path = _upload_one("Choose the L file now.")
 
-injected_ng_text = input("Injected protein mass in ng [500]: ").strip()
-injected_ng = float(injected_ng_text) if injected_ng_text else 500.0
+    print("\nUpload H / oxidised / UniMod_776 site matrix.")
+    heavy_path = _upload_one("Choose the H file now.")
 
-if injected_ng <= 0:
-    raise ValueError("Injected protein mass must be positive.")
+    print("\nUpload FASTA used for the DIA-NN search.")
+    fasta_path = _upload_one("Choose the FASTA file now.")
 
-print("\nUpload L / reduced / UniMod_108 site matrix.")
-light_path = _upload_one("Choose the L file now.")
+    use_pg = input("\nUpload optional PG / protein LFQ matrix? y/n [n]: ").strip().lower()
+    protein_path = None
 
-print("\nUpload H / oxidised / UniMod_776 site matrix.")
-heavy_path = _upload_one("Choose the H file now.")
+    if use_pg == "y":
+        print("\nUpload PG / protein LFQ matrix.")
+        protein_path = _upload_one("Choose the PG file now.")
 
-print("\nUpload FASTA used for the DIA-NN search.")
-fasta_path = _upload_one("Choose the FASTA file now.")
+    outdir = Path(f"{study_name}_cysnet_outputs")
 
-use_pg = input("\nUpload optional PG / protein LFQ matrix? y/n [n]: ").strip().lower()
-protein_path = None
+    if outdir.exists():
+        shutil.rmtree(outdir)
 
-if use_pg == "y":
-    print("\nUpload PG / protein LFQ matrix.")
-    protein_path = _upload_one("Choose the PG file now.")
+    outdir.mkdir(parents=True, exist_ok=True)
 
-outdir = Path(f"{study_name}_cysnet_outputs")
+    print("\nRunning CysNet Oxi-DIA site import...")
 
-if outdir.exists():
-    shutil.rmtree(outdir)
+    oxidia_paths = write_oxidia_outputs(
+        light_path=light_path,
+        heavy_path=heavy_path,
+        outdir=outdir,
+        study_name=study_name,
+        sep=sep,
+    )
 
-outdir.mkdir(parents=True, exist_ok=True)
+    print("Running CysNet FASTA topology bookkeeping...")
 
-print("\nRunning CysNet Oxi-DIA site import...")
-
-oxidia_paths = write_oxidia_outputs(
-    light_path=light_path,
-    heavy_path=heavy_path,
-    outdir=outdir,
-    study_name=study_name,
-    sep=sep,
-)
-
-print("Running CysNet FASTA topology bookkeeping...")
-
-topology_paths = write_topology_outputs(
-    redox_marginals_path=oxidia_paths["redox_marginals"],
-    fasta_path=fasta_path,
-    outdir=outdir,
-    study_name=study_name,
-    sep="\t",
-)
-
-print("Running CysNet coverage and constraint classification...")
-
-constraint_paths = write_constraint_outputs(
-    redox_marginals_path=oxidia_paths["redox_marginals"],
-    protein_topology_path=topology_paths["protein_topology"],
-    outdir=outdir,
-    study_name=study_name,
-    sep="\t",
-)
-
-all_paths = {
-    **oxidia_paths,
-    **topology_paths,
-    **constraint_paths,
-}
-
-copy_paths = {}
-copy_constraint_paths = {}
-
-if protein_path is not None:
-    print("Running CysNet copy-number scaling...")
-
-    from cysnet.copynumber import write_copy_number_outputs
-    from cysnet.copyconstraints import write_copy_constraint_outputs
-
-    copy_paths = write_copy_number_outputs(
+    topology_paths = write_topology_outputs(
         redox_marginals_path=oxidia_paths["redox_marginals"],
-        protein_matrix_path=protein_path,
         fasta_path=fasta_path,
         outdir=outdir,
         study_name=study_name,
-        injected_mass_g=injected_ng * 1e-9,
         sep="\t",
-        protein_matrix_sep=pg_sep,
     )
 
-    all_paths.update(copy_paths)
+    print("Running CysNet coverage and constraint classification...")
 
-    print("Running CysNet copy-number-scaled constraints...")
-
-    copy_constraint_paths = write_copy_constraint_outputs(
+    constraint_paths = write_constraint_outputs(
         redox_marginals_path=oxidia_paths["redox_marginals"],
-        per_protein_constraints_path=constraint_paths["per_protein_constraints"],
-        protein_copy_number_path=copy_paths["protein_copy_number"],
+        protein_topology_path=topology_paths["protein_topology"],
         outdir=outdir,
         study_name=study_name,
         sep="\t",
     )
 
-    all_paths.update(copy_constraint_paths)
+    all_paths = {
+        **oxidia_paths,
+        **topology_paths,
+        **constraint_paths,
+    }
 
-print("Writing CysNet meaning report...")
+    if protein_path is not None:
+        print("Running CysNet copy-number scaling...")
 
-meaning_path = write_meaning_report(
-    outdir=outdir,
-    study_name=study_name,
-)
+        from cysnet.copynumber import write_copy_number_outputs
+        from cysnet.copyconstraints import write_copy_constraint_outputs
 
-all_paths["meaning_report"] = meaning_path
+        copy_paths = write_copy_number_outputs(
+            redox_marginals_path=oxidia_paths["redox_marginals"],
+            protein_matrix_path=protein_path,
+            fasta_path=fasta_path,
+            outdir=outdir,
+            study_name=study_name,
+            injected_mass_g=injected_ng * 1e-9,
+            sep="\t",
+            protein_matrix_sep=pg_sep,
+        )
 
-print("\nCysNet run complete.")
+        all_paths.update(copy_paths)
 
-print("\n=== Generated files ===")
-for label, path in all_paths.items():
-    print(f"{label}: {path}")
+        print("Running CysNet copy-number-scaled constraints...")
 
-print("\n=== Oxi-DIA sample summary ===")
-display(pd.read_csv(oxidia_paths["summary"], sep="\t"))
+        copy_constraint_paths = write_copy_constraint_outputs(
+            redox_marginals_path=oxidia_paths["redox_marginals"],
+            per_protein_constraints_path=constraint_paths["per_protein_constraints"],
+            protein_copy_number_path=copy_paths["protein_copy_number"],
+            outdir=outdir,
+            study_name=study_name,
+            sep="\t",
+        )
 
-print("\n=== FASTA topology summary ===")
-display(pd.read_csv(topology_paths["topology_summary"], sep="\t"))
+        all_paths.update(copy_constraint_paths)
 
-print("\n=== Constraint summary ===")
-display(pd.read_csv(constraint_paths["constraint_summary"], sep="\t"))
+    print("Writing CysNet meaning report...")
 
-print("\n=== Coverage classes ===")
-display(pd.read_csv(constraint_paths["coverage_classes"], sep="\t"))
+    meaning_path = write_meaning_report(
+        outdir=outdir,
+        study_name=study_name,
+    )
 
-print("\n=== Sample proteoform / oxiform summary ===")
-display(pd.read_csv(constraint_paths["sample_proteoform_summary"], sep="\t"))
+    all_paths["meaning_report"] = meaning_path
 
-print("\n=== Cohort proteoform totals ===")
-display(pd.read_csv(constraint_paths["cohort_proteoform_totals"], sep="\t"))
+    print("\nCysNet run complete.")
 
-if "copy_substate_summary" in all_paths:
-    print("\n=== Copy-number / substate capacity summary ===")
-    display(pd.read_csv(all_paths["copy_substate_summary"], sep="\t"))
+    print("\n=== Generated files ===")
+    for label, path in all_paths.items():
+        print(f"{label}: {path}")
 
-if "copy_constraint_summary" in all_paths:
-    print("\n=== Copy-number-scaled constraint summary ===")
-    display(pd.read_csv(all_paths["copy_constraint_summary"], sep="\t"))
+    print("\n=== Oxi-DIA sample summary ===")
+    display(pd.read_csv(oxidia_paths["summary"], sep="\t"))
 
-if "copy_constraint_cohort_summary" in all_paths:
-    print("\n=== Copy-number-scaled cohort summary ===")
-    display(pd.read_csv(all_paths["copy_constraint_cohort_summary"], sep="\t"))
+    print("\n=== FASTA topology summary ===")
+    display(pd.read_csv(topology_paths["topology_summary"], sep="\t"))
 
-print("\n=== Meaning report ===")
-print(meaning_path)
+    print("\n=== Constraint summary ===")
+    display(pd.read_csv(constraint_paths["constraint_summary"], sep="\t"))
 
-zip_path = Path(f"{study_name}_cysnet_outputs.zip")
-_zip_folder(outdir, zip_path)
+    print("\n=== Coverage classes ===")
+    display(pd.read_csv(constraint_paths["coverage_classes"], sep="\t"))
 
-print(f"\nDownloading: {zip_path}")
-files.download(str(zip_path))
-```
+    if "sample_proteoform_summary" in constraint_paths:
+        print("\n=== Sample proteoform / oxiform summary ===")
+        display(pd.read_csv(constraint_paths["sample_proteoform_summary"], sep="\t"))
+
+    if "cohort_proteoform_totals" in constraint_paths:
+        print("\n=== Cohort proteoform totals ===")
+        display(pd.read_csv(constraint_paths["cohort_proteoform_totals"], sep="\t"))
+
+    if "copy_substate_summary" in all_paths:
+        print("\n=== Copy-number / substate capacity summary ===")
+        display(pd.read_csv(all_paths["copy_substate_summary"], sep="\t"))
+
+    if "copy_constraint_summary" in all_paths:
+        print("\n=== Copy-number-scaled constraint summary ===")
+        display(pd.read_csv(all_paths["copy_constraint_summary"], sep="\t"))
+
+    if "copy_constraint_cohort_summary" in all_paths:
+        print("\n=== Copy-number-scaled cohort summary ===")
+        display(pd.read_csv(all_paths["copy_constraint_cohort_summary"], sep="\t"))
+
+    print("\n=== Meaning report ===")
+    print(meaning_path)
+
+    zip_path = Path(f"{study_name}_cysnet_outputs.zip")
+    _zip_folder(outdir, zip_path)
+
+    print(f"\nDownloading: {zip_path}")
+    files.download(str(zip_path))
